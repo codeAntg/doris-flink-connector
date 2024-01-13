@@ -14,9 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.flink.catalog;
 
-import org.apache.doris.flink.catalog.doris.DorisType;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.ArrayType;
@@ -38,6 +38,9 @@ import org.apache.flink.table.types.logical.VarBinaryType;
 import org.apache.flink.table.types.logical.VarCharType;
 import org.apache.flink.table.types.logical.utils.LogicalTypeDefaultVisitor;
 
+import org.apache.doris.flink.catalog.doris.DorisType;
+
+import static org.apache.doris.flink.catalog.doris.DorisType.ARRAY;
 import static org.apache.doris.flink.catalog.doris.DorisType.BIGINT;
 import static org.apache.doris.flink.catalog.doris.DorisType.BOOLEAN;
 import static org.apache.doris.flink.catalog.doris.DorisType.CHAR;
@@ -50,23 +53,34 @@ import static org.apache.doris.flink.catalog.doris.DorisType.DECIMAL_V3;
 import static org.apache.doris.flink.catalog.doris.DorisType.DOUBLE;
 import static org.apache.doris.flink.catalog.doris.DorisType.FLOAT;
 import static org.apache.doris.flink.catalog.doris.DorisType.INT;
+import static org.apache.doris.flink.catalog.doris.DorisType.JSON;
 import static org.apache.doris.flink.catalog.doris.DorisType.JSONB;
 import static org.apache.doris.flink.catalog.doris.DorisType.LARGEINT;
+import static org.apache.doris.flink.catalog.doris.DorisType.MAP;
 import static org.apache.doris.flink.catalog.doris.DorisType.SMALLINT;
 import static org.apache.doris.flink.catalog.doris.DorisType.STRING;
+import static org.apache.doris.flink.catalog.doris.DorisType.STRUCT;
 import static org.apache.doris.flink.catalog.doris.DorisType.TINYINT;
 import static org.apache.doris.flink.catalog.doris.DorisType.VARCHAR;
 
 public class DorisTypeMapper {
 
-    public static DataType toFlinkType(String columnName, String columnType, int precision, int scale) {
+    /** Max size of char type of Doris. */
+    public static final int MAX_CHAR_SIZE = 255;
+
+    /** Max size of varchar type of Doris. */
+    public static final int MAX_VARCHAR_SIZE = 65533;
+
+    public static DataType toFlinkType(
+            String columnName, String columnType, int precision, int scale) {
         columnType = columnType.toUpperCase();
         switch (columnType) {
             case BOOLEAN:
                 return DataTypes.BOOLEAN();
             case TINYINT:
                 if (precision == 0) {
-                    //The boolean type will become tinyint when queried in information_schema, and precision=0
+                    // The boolean type will become tinyint when queried in information_schema, and
+                    // precision=0
                     return DataTypes.BOOLEAN();
                 } else {
                     return DataTypes.TINYINT();
@@ -91,6 +105,12 @@ public class DorisTypeMapper {
             case LARGEINT:
             case STRING:
             case JSONB:
+            case JSON:
+                // Currently, the subtype of the generic cannot be obtained,
+                // so it is mapped to string
+            case ARRAY:
+            case MAP:
+            case STRUCT:
                 return DataTypes.STRING();
             case DATE:
             case DATE_V2:
@@ -101,11 +121,12 @@ public class DorisTypeMapper {
             default:
                 throw new UnsupportedOperationException(
                         String.format(
-                                "Doesn't support Doris type '%s' on column '%s'", columnType, columnName));
+                                "Doesn't support Doris type '%s' on column '%s'",
+                                columnType, columnName));
         }
     }
 
-    public static String toDorisType(DataType flinkType){
+    public static String toDorisType(DataType flinkType) {
         LogicalType logicalType = flinkType.getLogicalType();
         return logicalType.accept(new LogicalTypeVisitor(logicalType));
     }
@@ -119,13 +140,19 @@ public class DorisTypeMapper {
 
         @Override
         public String visit(CharType charType) {
-            return String.format("%s(%s)", DorisType.CHAR, charType.getLength());
+            long length = charType.getLength() * 3L;
+            if (length <= MAX_CHAR_SIZE) {
+                return String.format("%s(%s)", DorisType.CHAR, length);
+            } else {
+                return visit(new VarCharType(charType.getLength()));
+            }
         }
 
         @Override
         public String visit(VarCharType varCharType) {
-            int length = varCharType.getLength();
-            return length > 65533 ? STRING : String.format("%s(%s)", VARCHAR, length);
+            // Flink varchar length max value is int, it may overflow after multiplying by 3
+            long length = varCharType.getLength() * 3L;
+            return length >= MAX_VARCHAR_SIZE ? STRING : String.format("%s(%s)", VARCHAR, length);
         }
 
         @Override
@@ -139,11 +166,12 @@ public class DorisTypeMapper {
         }
 
         @Override
-        public String  visit(DecimalType decimalType) {
+        public String visit(DecimalType decimalType) {
             int precision = decimalType.getPrecision();
             int scale = decimalType.getScale();
             return precision <= 38
-                    ? String.format("%s(%s,%s)", DorisType.DECIMAL_V3, precision, scale >= 0 ? scale : 0)
+                    ? String.format(
+                            "%s(%s,%s)", DorisType.DECIMAL_V3, precision, Math.max(scale, 0))
                     : DorisType.STRING;
         }
 
@@ -185,7 +213,8 @@ public class DorisTypeMapper {
         @Override
         public String visit(TimestampType timestampType) {
             int precision = timestampType.getPrecision();
-            return String.format("%s(%s)", DorisType.DATETIME_V2, Math.min(Math.max(precision, 0), 6));
+            return String.format(
+                    "%s(%s)", DorisType.DATETIME_V2, Math.min(Math.max(precision, 0), 6));
         }
 
         @Override
@@ -211,5 +240,4 @@ public class DorisTypeMapper {
                             type.toString()));
         }
     }
-
 }
