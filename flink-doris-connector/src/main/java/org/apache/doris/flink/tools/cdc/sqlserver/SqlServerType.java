@@ -41,6 +41,7 @@ public class SqlServerType {
     private static final String NVARCHAR = "nvarchar";
     private static final String TEXT = "text";
     private static final String NTEXT = "ntext";
+    private static final String XML = "xml";
     private static final String UNIQUEIDENTIFIER = "uniqueidentifier";
     private static final String TIME = "time";
     private static final String TIMESTAMP = "timestamp";
@@ -102,6 +103,9 @@ public class SqlServerType {
             case DATETIMEOFFSET:
             case TIMESTAMP:
             case UNIQUEIDENTIFIER:
+            case BINARY:
+            case VARBINARY:
+            case XML:
                 return DorisType.STRING;
             default:
                 throw new UnsupportedOperationException(

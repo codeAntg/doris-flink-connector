@@ -28,10 +28,12 @@ import com.ververica.cdc.connectors.base.source.jdbc.JdbcIncrementalSource;
 import com.ververica.cdc.connectors.oracle.OracleSource;
 import com.ververica.cdc.connectors.oracle.source.OracleSourceBuilder;
 import com.ververica.cdc.connectors.oracle.source.config.OracleSourceOptions;
+import com.ververica.cdc.debezium.DebeziumDeserializationSchema;
 import com.ververica.cdc.debezium.DebeziumSourceFunction;
 import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
 import com.ververica.cdc.debezium.table.DebeziumOptions;
 import org.apache.doris.flink.catalog.doris.DataModel;
+import org.apache.doris.flink.deserialization.DorisJsonDebeziumDeserializationSchema;
 import org.apache.doris.flink.tools.cdc.DatabaseSync;
 import org.apache.doris.flink.tools.cdc.SourceSchema;
 import org.slf4j.Logger;
@@ -143,10 +145,8 @@ public class OracleDatabaseSync extends DatabaseSync {
         // When debezium incrementally reads, it will be judged based on regexp_like.
         // When the regular length exceeds 512, an error will be reported,
         // like ORA-12733: regular expression too long
-        if (tableName.length() > 384) {
-            // max database name length 128
-            tableName =
-                    StringUtils.isNullOrWhitespaceOnly(includingTables) ? ".*" : includingTables;
+        if (tableName.length() > 512) {
+            tableName = StringUtils.isNullOrWhitespaceOnly(includingTables) ? ".*" : tableName;
         }
 
         String url = config.get(OracleSourceOptions.URL);
@@ -177,9 +177,13 @@ public class OracleDatabaseSync extends DatabaseSync {
             }
         }
 
-        Map<String, Object> customConverterConfigs = new HashMap<>();
-        JsonDebeziumDeserializationSchema schema =
-                new JsonDebeziumDeserializationSchema(false, customConverterConfigs);
+        DebeziumDeserializationSchema<String> schema;
+        if (ignoreDefaultValue) {
+            schema = new DorisJsonDebeziumDeserializationSchema();
+        } else {
+            Map<String, Object> customConverterConfigs = new HashMap<>();
+            schema = new JsonDebeziumDeserializationSchema(false, customConverterConfigs);
+        }
 
         if (config.getBoolean(OracleSourceOptions.SCAN_INCREMENTAL_SNAPSHOT_ENABLED, false)) {
             JdbcIncrementalSource<String> incrSource =
@@ -230,7 +234,6 @@ public class OracleDatabaseSync extends DatabaseSync {
 
     @Override
     public String getTableListPrefix() {
-        String schemaName = config.get(OracleSourceOptions.SCHEMA_NAME);
-        return schemaName;
+        return config.get(OracleSourceOptions.SCHEMA_NAME);
     }
 }

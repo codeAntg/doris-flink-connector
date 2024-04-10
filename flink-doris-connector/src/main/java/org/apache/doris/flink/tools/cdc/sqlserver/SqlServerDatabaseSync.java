@@ -26,12 +26,15 @@ import com.ververica.cdc.connectors.base.options.JdbcSourceOptions;
 import com.ververica.cdc.connectors.base.options.SourceOptions;
 import com.ververica.cdc.connectors.base.options.StartupOptions;
 import com.ververica.cdc.connectors.base.source.jdbc.JdbcIncrementalSource;
+import com.ververica.cdc.connectors.shaded.org.apache.kafka.connect.json.JsonConverterConfig;
 import com.ververica.cdc.connectors.sqlserver.SqlServerSource;
 import com.ververica.cdc.connectors.sqlserver.source.SqlServerSourceBuilder;
+import com.ververica.cdc.debezium.DebeziumDeserializationSchema;
 import com.ververica.cdc.debezium.DebeziumSourceFunction;
 import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
 import com.ververica.cdc.debezium.table.DebeziumOptions;
 import org.apache.doris.flink.catalog.doris.DataModel;
+import org.apache.doris.flink.deserialization.DorisJsonDebeziumDeserializationSchema;
 import org.apache.doris.flink.tools.cdc.DatabaseSync;
 import org.apache.doris.flink.tools.cdc.SourceSchema;
 import org.slf4j.Logger;
@@ -99,7 +102,7 @@ public class SqlServerDatabaseSync extends DatabaseSync {
         try (Connection conn = getConnection()) {
             DatabaseMetaData metaData = conn.getMetaData();
             try (ResultSet tables =
-                    metaData.getTables(databaseName, null, "%", new String[] {"TABLE"})) {
+                    metaData.getTables(databaseName, schemaName, "%", new String[] {"TABLE"})) {
                 while (tables.next()) {
                     String tableName = tables.getString("TABLE_NAME");
                     String tableComment = tables.getString("REMARKS");
@@ -108,7 +111,7 @@ public class SqlServerDatabaseSync extends DatabaseSync {
                     }
                     SourceSchema sourceSchema =
                             new SqlServerSchema(
-                                    metaData, databaseName, null, tableName, tableComment);
+                                    metaData, databaseName, schemaName, tableName, tableComment);
                     sourceSchema.setModel(
                             !sourceSchema.primaryKeys.isEmpty()
                                     ? DataModel.UNIQUE
@@ -125,11 +128,11 @@ public class SqlServerDatabaseSync extends DatabaseSync {
         String databaseName = config.get(JdbcSourceOptions.DATABASE_NAME);
         String schemaName = config.get(JdbcSourceOptions.SCHEMA_NAME);
         Preconditions.checkNotNull(databaseName, "database-name in sqlserver is required");
-        Preconditions.checkNotNull(databaseName, "schema-name in sqlserver is required");
+        Preconditions.checkNotNull(schemaName, "schema-name in sqlserver is required");
 
         String tableName = config.get(JdbcSourceOptions.TABLE_NAME);
         String hostname = config.get(JdbcSourceOptions.HOSTNAME);
-        Integer port = config.getInteger(PORT, 1433);
+        int port = config.getInteger(PORT, 1433);
         String username = config.get(JdbcSourceOptions.USERNAME);
         String password = config.get(JdbcSourceOptions.PASSWORD);
 
@@ -155,9 +158,14 @@ public class SqlServerDatabaseSync extends DatabaseSync {
             }
         }
 
-        Map<String, Object> customConverterConfigs = new HashMap<>();
-        JsonDebeziumDeserializationSchema schema =
-                new JsonDebeziumDeserializationSchema(false, customConverterConfigs);
+        DebeziumDeserializationSchema<String> schema;
+        if (ignoreDefaultValue) {
+            schema = new DorisJsonDebeziumDeserializationSchema();
+        } else {
+            Map<String, Object> customConverterConfigs = new HashMap<>();
+            customConverterConfigs.put(JsonConverterConfig.DECIMAL_FORMAT_CONFIG, "numeric");
+            schema = new JsonDebeziumDeserializationSchema(false, customConverterConfigs);
+        }
 
         if (config.getBoolean(SourceOptions.SCAN_INCREMENTAL_SNAPSHOT_ENABLED, false)) {
             JdbcIncrementalSource<String> incrSource =
@@ -204,7 +212,6 @@ public class SqlServerDatabaseSync extends DatabaseSync {
 
     @Override
     public String getTableListPrefix() {
-        String schemaName = config.get(JdbcSourceOptions.SCHEMA_NAME);
-        return schemaName;
+        return config.get(JdbcSourceOptions.SCHEMA_NAME);
     }
 }

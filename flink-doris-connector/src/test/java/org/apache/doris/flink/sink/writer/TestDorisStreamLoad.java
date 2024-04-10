@@ -20,6 +20,7 @@ package org.apache.doris.flink.sink.writer;
 import org.apache.doris.flink.cfg.DorisExecutionOptions;
 import org.apache.doris.flink.cfg.DorisOptions;
 import org.apache.doris.flink.cfg.DorisReadOptions;
+import org.apache.doris.flink.exception.DorisException;
 import org.apache.doris.flink.sink.HttpTestUtil;
 import org.apache.doris.flink.sink.OptionUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -88,7 +89,7 @@ public class TestDorisStreamLoad {
         dorisStreamLoad.abortTransaction(anyLong());
     }
 
-    @Test
+    @Test(expected = DorisException.class)
     public void testAbortTransactionFailed() throws Exception {
         CloseableHttpClient httpClient = mock(CloseableHttpClient.class);
         CloseableHttpResponse abortFailedResponse =
@@ -120,7 +121,7 @@ public class TestDorisStreamLoad {
                         httpClient);
         dorisStreamLoad.startLoad("1", false);
         dorisStreamLoad.writeRecord(writeBuffer);
-        dorisStreamLoad.stopLoad("label");
+        dorisStreamLoad.stopLoad();
         byte[] buff = new byte[4];
         int n = dorisStreamLoad.getRecordStream().read(buff);
         dorisStreamLoad.getRecordStream().read(new byte[4]);
@@ -147,7 +148,7 @@ public class TestDorisStreamLoad {
         dorisStreamLoad.startLoad("1", false);
         dorisStreamLoad.writeRecord(writeBuffer);
         dorisStreamLoad.writeRecord(writeBuffer);
-        dorisStreamLoad.stopLoad("label");
+        dorisStreamLoad.stopLoad();
         byte[] buff = new byte[9];
         int n = dorisStreamLoad.getRecordStream().read(buff);
         int ret = dorisStreamLoad.getRecordStream().read(new byte[9]);
@@ -179,7 +180,7 @@ public class TestDorisStreamLoad {
         dorisStreamLoad.startLoad("1", false);
         dorisStreamLoad.writeRecord("{\"id\": 1}".getBytes(StandardCharsets.UTF_8));
         dorisStreamLoad.writeRecord("{\"id\": 2}".getBytes(StandardCharsets.UTF_8));
-        dorisStreamLoad.stopLoad("label");
+        dorisStreamLoad.stopLoad();
         byte[] buff = new byte[expectBuffer.length];
         int n = dorisStreamLoad.getRecordStream().read(buff);
 
